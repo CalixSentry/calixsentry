@@ -1,0 +1,16 @@
+package com.calixsentry.detection;
+
+public enum DetectionCategory {
+    ENDPOINT_ENUMERATION,
+    RATE_ANOMALY,
+    SENSITIVE_PATH_ACCESS,
+    SUSPICIOUS_USER_AGENT,
+    SQL_INJECTION,
+    CROSS_SITE_SCRIPTING,
+    PATH_TRAVERSAL,
+    COMMAND_INJECTION,
+    SSRF_INDICATOR,
+    MALICIOUS_FILE_ACCESS,
+    HTTP_ABUSE,
+    NONE
+}

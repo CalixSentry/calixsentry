@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CalixSentry</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header>
+  <h1>CalixSentry</h1>
+  <div class="engine-controls">
+    <span class="badge" id="modeBadge">loading...</span>
+    <label class="lbl" for="modeSelect">Mode</label>
+    <select id="modeSelect">
+      <option value="MONITOR">MONITOR (safe, never blocks)</option>
+      <option value="ALERT">ALERT (never blocks)</option>
+      <option value="MANUAL">MANUAL (recommends, never blocks)</option>
+      <option value="AUTOMATIC">AUTOMATIC (can block)</option>
+    </select>
+    <label class="lbl inline">Auto-Block
+      <span class="switch"><input type="checkbox" id="autoBlockToggle"><span class="slider"></span></span>
+    </label>
+    <button class="primary" data-action="save-protection">Save</button>
+    <label class="lbl inline"><input type="checkbox" id="autoRefresh" checked> Auto-refresh</label>
+  </div>
+</header>
+
+<main>
+  <div class="grid" id="statsGrid"></div>
+
+  <nav class="tabs" id="mainTabs">
+    <button data-view="events" class="active">Live Events</button>
+    <button data-view="ips">IPs</button>
+    <button data-view="blocks">Blocks</button>
+    <button data-view="rules">Rules</button>
+    <button data-view="access">Allow / Deny</button>
+    <button data-view="history">History</button>
+  </nav>
+
+  <!-- LIVE EVENTS -->
+  <section class="view panel" id="view-events">
+    <div class="filters">
+      <input type="text" id="fSearch" placeholder="Search IP, URI, user-agent, reason...">
+      <select id="fSeverity"><option value="">All severities</option><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select>
+      <select id="fAction"><option value="">All actions</option><option>ALLOW</option><option>LOG</option><option>ALERT</option><option>RATE_LIMIT</option><option>TEMPORARY_BLOCK</option><option>BLOCK</option></select>
+      <select id="fCategory"><option value="">All categories</option></select>
+      <button data-action="events-apply">Apply</button>
+      <button data-action="events-clear">Clear</button>
+    </div>
+    <div class="scroll">
+      <table id="eventsTable">
+        <thead><tr>
+          <th data-table="events" data-sort="timestamp">Time</th>
+          <th data-table="events" data-sort="sourceIp">IP</th>
+          <th data-table="events" data-sort="method">Method</th>
+          <th data-table="events" data-sort="uri">URI</th>
+          <th data-table="events" data-sort="category">Category</th>
+          <th data-table="events" data-sort="threatScore">Score</th>
+          <th data-table="events" data-sort="severity">Severity</th>
+          <th data-table="events" data-sort="action">Action</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="eventsBody"></tbody>
+      </table>
+    </div>
+    <div class="pager">
+      <span id="eventsInfo" class="muted"></span>
+      <span class="spacer"></span>
+      <label class="lbl inline">Rows
+        <select id="eventsPageSize"><option>25</option><option selected>50</option><option>100</option><option>250</option></select>
+      </label>
+      <button data-action="events-prev">Prev</button>
+      <span id="eventsPageLabel" class="muted"></span>
+      <button data-action="events-next">Next</button>
+    </div>
+    <p class="muted small">Click a column heading to sort. Click an IP to see everything that IP did. Click a row for the evidence.</p>
+  </section>
+
+  <!-- IPS -->
+  <section class="view panel" id="view-ips" hidden>
+    <div class="filters">
+      <input type="text" id="ipSearch" placeholder="Filter by IP (e.g. 203.0.113)">
+      <button data-action="ips-apply">Search</button>
+    </div>
+    <div class="scroll">
+      <table id="ipsTable">
+        <thead><tr>
+          <th data-table="ips" data-sort="ip">IP</th>
+          <th data-table="ips" data-sort="firstSeen">First seen</th>
+          <th data-table="ips" data-sort="lastSeen">Last seen</th>
+          <th data-table="ips" data-sort="totalRequests">Requests</th>
+          <th data-table="ips" data-sort="distinctPaths">Distinct paths</th>
+          <th data-table="ips" data-sort="notFoundRequests">404s</th>
+          <th data-table="ips" data-sort="blockedRequests">Blocked / limited</th>
+          <th data-table="ips" data-sort="maxThreatScore">Max score</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="ipsBody"></tbody>
+      </table>
+    </div>
+    <p class="muted small">Live view of every client IP seen recently, including requests that triggered no detection. Held in memory (cleared on restart) - use the History tab for older days.</p>
+  </section>
+
+  <!-- BLOCKS -->
+  <section class="view panel" id="view-blocks" hidden>
+    <div class="addform">
+      <input type="text" id="blockIp" placeholder="IP to block (e.g. 203.0.113.5)">
+      <input type="text" id="blockReason" placeholder="Reason">
+      <select id="blockDuration">
+        <option value="300">5 min</option><option value="600" selected>10 min</option>
+        <option value="1800">30 min</option><option value="3600">1 hour</option>
+        <option value="21600">6 hours</option><option value="86400">24 hours</option>
+        <option value="permanent">Permanent</option>
+      </select>
+      <button class="primary" data-action="block-create">Block</button>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>IP</th><th>Reason</th><th>Type</th><th>Created by</th><th>Expires</th><th></th></tr></thead>
+        <tbody id="blocksBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- RULES -->
+  <section class="view panel" id="view-rules" hidden>
+    <div class="scroll" id="rulesList"></div>
+  </section>
+
+  <!-- ALLOW / DENY -->
+  <section class="view panel" id="view-access" hidden>
+    <div class="tabs">
+      <button class="active" id="tabAllow" data-action="access-tab" data-tab="allow">Allowlist</button>
+      <button id="tabDeny" data-action="access-tab" data-tab="deny">Denylist</button>
+    </div>
+    <div class="addform">
+      <input type="text" id="accessValue" placeholder="IP or CIDR (e.g. 10.0.0.0/24)">
+      <input type="text" id="accessReason" placeholder="Reason">
+      <button class="primary" data-action="access-add">Add</button>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Value</th><th>Reason</th><th>Added by</th><th></th></tr></thead>
+        <tbody id="accessBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section class="view panel" id="view-history" hidden>
+    <div class="filters">
+      <select id="hKind">
+        <option value="events">Security events</option>
+        <option value="access">Access log (every request)</option>
+      </select>
+      <select id="hDate"></select>
+      <input type="text" id="hIp" placeholder="IP address">
+      <input type="text" id="hQ" placeholder="Search text">
+      <select id="hLimit"><option value="200">200 rows</option><option value="500" selected>500 rows</option><option value="1000">1000 rows</option><option value="5000">5000 rows</option></select>
+      <button class="primary" data-action="history-search">Search</button>
+      <a id="hDownload" class="btnlink" href="#" hidden>Download file</a>
+    </div>
+    <div class="scroll">
+      <table id="hTable">
+        <thead id="hHead"></thead>
+        <tbody id="hBody"></tbody>
+      </table>
+    </div>
+    <p class="muted small" id="hInfo">Pick a kind and a day, then Search. Each day is its own file: calixsentry-events-YYYY-MM-DD.jsonl / calixsentry-access-YYYY-MM-DD.jsonl.</p>
+  </section>
+</main>
+
+<!-- IP INVESTIGATION -->
+<div class="modal" id="ipModal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="ipTitle"></h2>
+      <div class="modal-actions">
+        <button class="danger" data-action="ip-block">Block IP</button>
+        <button data-action="ip-history">Search history</button>
+        <button data-action="modal-close">Close</button>
+      </div>
+    </div>
+    <div class="grid small" id="ipSummary"></div>
+    <p class="muted small" id="ipStatusLine"></p>
+    <nav class="tabs" id="ipTabs">
+      <button data-ipview="paths" class="active">Paths requested</button>
+      <button data-ipview="trail">Request trail</button>
+      <button data-ipview="detections">Detections</button>
+    </nav>
+    <div class="scroll modal-scroll" id="ipBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

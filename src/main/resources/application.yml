@@ -1,0 +1,115 @@
+server:
+  port: ${CALIXSENTRY_PORT:8080}
+  # Bound to all interfaces by default inside the container; the docker-compose
+  # network is what actually restricts public exposure in the dev environment.
+  address: 0.0.0.0
+
+spring:
+  application:
+    name: calixsentry-engine
+  servlet:
+    multipart:
+      enabled: false # request bodies are read manually by WafGatewayFilter, not via multipart parsing
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  level:
+    root: INFO
+    com.calixsentry: INFO
+
+calixsentry:
+  server:
+    host: 0.0.0.0
+    # PUBLIC gateway port - what your visitors hit. Production: 80 (and 443 behind TLS).
+    port: ${CALIXSENTRY_PORT:8080}
+    # MANAGEMENT port - dashboard + API + actuator ONLY, never served on the public port.
+    # Set to 0 to disable the split (everything on the public port - NOT recommended).
+    management-port: ${CALIXSENTRY_MANAGEMENT_PORT:9400}
+    management-bind-address: ${CALIXSENTRY_MANAGEMENT_BIND:127.0.0.1}
+
+  backend:
+    base-url: ${CALIXSENTRY_BACKEND_URL:http://test-app:8081}
+    connect-timeout: 5s
+    read-timeout: 30s
+    max-request-bytes: 10485760
+
+  protection:
+    # SAFE DEFAULT (spec section 18) - never ships pre-enabled for blocking.
+    mode: MONITOR
+    automatic-blocking: false
+    alert-threshold: 30
+    automatic-block-threshold: 80
+    automatic-block-duration: 10m
+
+  detection:
+    bot-scanning: true
+    endpoint-enumeration: true
+    sql-injection: true
+    xss: true
+    path-traversal: true
+    command-injection: true
+    sensitive-paths: true
+    scanner-user-agents: true
+    enumeration-window-seconds: 300
+    enumeration-unique-path-threshold: 50
+    enumeration-not-found-ratio-threshold: 0.90
+    enumeration-min-requests: 15
+    sensitive-path-hits-threshold: 3
+    min-request-interval-millis-for-burst: 150
+    very-high-requests-per-second-threshold: 5.0
+
+  scoring:
+    weight-endpoint-enumeration: 30
+    weight-high-request-rate: 20
+    weight-high-not-found-ratio: 15
+    weight-sensitive-paths: 15
+    weight-suspicious-user-agent: 10
+    weight-known-signature: 30
+    weight-burst-behavior: 10
+    low-max: 29
+    medium-max: 59
+    high-max: 79
+
+  temporary-block:
+    default-duration: 10m
+    allowed-durations-seconds: [300, 600, 1800, 3600, 21600, 86400]
+    persistence-file: ${CALIXSENTRY_DATA_DIR:/data/calixsentry}/blocks.json
+
+  rate-limit:
+    enabled: true
+    requests-per-window: 100
+    window: 60s
+    burst: 20
+
+  events:
+    file-sink-enabled: true
+    # Daily files: calixsentry-events-YYYY-MM-DD.jsonl and calixsentry-access-YYYY-MM-DD.jsonl
+    log-dir: ${CALIXSENTRY_DATA_DIR:/data/calixsentry}/logs
+    # Which time zone decides where one day ends and the next begins (e.g. Asia/Kolkata)
+    timezone: ${CALIXSENTRY_TIMEZONE:UTC}
+    retention-days: 90            # security-event files; 0 = keep forever
+    access-log-enabled: true      # log EVERY proxied request (needed for full per-IP history)
+    access-log-retention-days: 14 # access files are much bigger; 0 = keep forever
+    ip-tracker-max-ips: 10000
+    ip-trail-per-ip: 300
+    ip-retention-hours: 24
+    webhook-enabled: false
+    webhook-url: ""
+    in-memory-retention: 5000
+
+  elasticsearch:
+    enabled: false
+    url: ""
+    index-prefix: calixsentry-events
+
+  management:
+    base-path: /calixsentry
+    trusted-proxy-ips: []

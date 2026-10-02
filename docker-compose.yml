@@ -1,0 +1,74 @@
+version: "3.9"
+
+# CalixSentry development environment.
+#
+#   Internet / your browser
+#         |
+#         v
+#   calixsentry-engine  (Gateway + Engine, consolidated for MVP - see docs/ARCHITECTURE.md)
+#     - public traffic:      :8080  ->  proxies to test-app
+#     - dashboard/API:       :8080/calixsentry  (Basic Auth)
+#         |
+#         v
+#   test-app  (the "customer application" being protected - nginx serving static content,
+#              plus a couple of endpoints that return 401/500 so you can verify status-code
+#              propagation end-to-end)
+#
+# Run:  docker compose up --build
+# Then: http://localhost:8080/            (proxied traffic)
+#       http://localhost:8080/calixsentry/ (dashboard - default user "admin", password is
+#                                            printed in the calixsentry-engine container logs
+#                                            on first startup, or read via:
+#                                            docker compose exec calixsentry-engine cat /data/calixsentry/initial-admin-password.txt)
+
+services:
+  calixsentry-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: calixsentry-engine
+    ports:
+      - "8080:8080"
+      - "9400:9400"
+    environment:
+      CALIXSENTRY_PORT: "8080"
+      CALIXSENTRY_MANAGEMENT_PORT: "9400"
+      # Dev-only: a service bound to 127.0.0.1 INSIDE a container is unreachable through
+      # Docker's port mapping (traffic arrives on the container's network interface, not its
+      # loopback). Binding to 0.0.0.0 here is safe because the docker-compose network itself
+      # is the isolation boundary in development. The production installer (installer/install.sh)
+      # keeps the real default of 127.0.0.1, since there's no such network boundary on a bare server.
+      CALIXSENTRY_MANAGEMENT_BIND: "0.0.0.0"
+      CALIXSENTRY_BACKEND_URL: "http://test-app:8081"
+      CALIXSENTRY_DATA_DIR: "/data/calixsentry"
+      # Uncomment to pin the admin password instead of using the generated one:
+      # CALIXSENTRY_ADMIN_PASSWORD: "change-me-now"
+    volumes:
+      - calixsentry-data:/data/calixsentry
+    depends_on:
+      test-app:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - calixsentry-net
+
+  test-app:
+    build:
+      context: ./docker/test-app
+    container_name: calixsentry-test-app
+    expose:
+      - "8081"
+    networks:
+      - calixsentry-net
+
+networks:
+  calixsentry-net:
+    driver: bridge
+
+volumes:
+  calixsentry-data:
