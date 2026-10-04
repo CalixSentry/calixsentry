@@ -1,0 +1,176 @@
+# ==============================================================================
+# CalixSentry configuration
+#
+# This is the real, active configuration file - not a sample. Edit it directly,
+# or override individual values with environment variables (shown next to each
+# setting below) - either works, environment variables take priority.
+#
+# After changing this file, restart CalixSentry for the change to take effect.
+# ==============================================================================
+
+server:
+  port: ${CALIXSENTRY_PORT:8080}
+  # Interface the PUBLIC gateway binds to - see calixsentry.server.host below,
+  # this is the actual Spring Boot property that controls it.
+  address: ${CALIXSENTRY_HOST:0.0.0.0}
+
+spring:
+  application:
+    name: calixsentry-engine
+  servlet:
+    multipart:
+      enabled: false # request bodies are read manually by WafGatewayFilter, not via multipart parsing
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  level:
+    root: INFO
+    com.calixsentry: INFO
+
+calixsentry:
+
+  # ----------------------------------------------------------------------------
+  # NETWORK: which interface(s) CalixSentry listens on, and its two ports.
+  # ----------------------------------------------------------------------------
+  server:
+    # Interface the PUBLIC gateway binds to - set via the server.address property
+    # above (same CALIXSENTRY_HOST variable controls both; this entry mirrors it
+    # for CalixSentry's own reference, e.g. in the status API). 0.0.0.0 = every
+    # network interface on this machine - localhost, LAN IP, or a public cloud IP
+    # all work identically, since they all resolve to this one machine. Set to a
+    # single specific IP instead if you want the gateway reachable on only one.
+    host: ${CALIXSENTRY_HOST:0.0.0.0}
+
+    # PUBLIC gateway port - what your visitors/users actually hit.
+    # Local trial: 8080. Production fronting real traffic: 80 (and 443 behind TLS).
+    port: ${CALIXSENTRY_PORT:8080}
+
+    # MANAGEMENT port - dashboard + REST API + actuator ONLY. Deliberately a
+    # SEPARATE, FIXED port from the gateway above, so the admin surface is never
+    # reachable through the public port at all - not hidden, simply not there.
+    # Set to 0 to disable the split and serve everything on the public port
+    # instead (not recommended for anything but local, throwaway testing).
+    management-port: ${CALIXSENTRY_MANAGEMENT_PORT:9400}
+
+    # Interface the MANAGEMENT port binds to. Default is loopback-only (127.0.0.1)
+    # - the dashboard is reachable only from this machine itself, or via an SSH
+    # tunnel. Set to 0.0.0.0 only if you have another reason this port is already
+    # protected (a private network, a firewall rule, a VPN) - see security: below
+    # either way, since that setting stays enforced regardless of bind address.
+    management-bind-address: ${CALIXSENTRY_MANAGEMENT_BIND:127.0.0.1}
+
+  # ----------------------------------------------------------------------------
+  # SECURITY: authentication for the dashboard and API (xpack.security equivalent)
+  # ----------------------------------------------------------------------------
+  security:
+    # Master switch. SAFE DEFAULT: true. When true, every dashboard/API request
+    # requires the admin username + password shown on first startup (or set via
+    # CALIXSENTRY_ADMIN_PASSWORD). Only set to false for local-only evaluation on
+    # a machine nothing else can reach - CalixSentry logs a loud warning if you do.
+    enabled: ${CALIXSENTRY_SECURITY_ENABLED:true}
+    admin-username: ${CALIXSENTRY_ADMIN_USERNAME:admin}
+    # Admin password is intentionally NOT a setting in this file: putting a real
+    # password in a config file risks it ending up in version control or backups.
+    # Set it via the CALIXSENTRY_ADMIN_PASSWORD environment variable instead, or
+    # leave it unset and CalixSentry generates and prints a random one for you on
+    # first startup - the same pattern Elasticsearch/Kibana use for bootstrap
+    # credentials.
+
+  # ----------------------------------------------------------------------------
+  # BACKEND: the application CalixSentry protects.
+  # ----------------------------------------------------------------------------
+  backend:
+    # Any reachable HTTP(S) target: localhost, a private/cloud IP, an internal
+    # hostname, or a public domain name all work identically here. Examples:
+    #   http://localhost:3000
+    #   http://10.20.30.40:8080
+    #   http://app.internal.mycompany.com:8080
+    #   https://origin.example.com
+    base-url: ${CALIXSENTRY_BACKEND_URL:http://localhost:8081}
+    connect-timeout: 5s
+    read-timeout: 30s
+    max-request-bytes: 10485760
+
+  # ----------------------------------------------------------------------------
+  # PROTECTION MODE
+  # ----------------------------------------------------------------------------
+  protection:
+    # SAFE DEFAULT - never ships pre-enabled for blocking.
+    mode: ${CALIXSENTRY_PROTECTION_MODE:MONITOR}
+    automatic-blocking: ${CALIXSENTRY_AUTO_BLOCKING:false}
+    alert-threshold: 30
+    automatic-block-threshold: 80
+    automatic-block-duration: 10m
+
+  detection:
+    bot-scanning: true
+    endpoint-enumeration: true
+    sql-injection: true
+    xss: true
+    path-traversal: true
+    command-injection: true
+    sensitive-paths: true
+    scanner-user-agents: true
+    enumeration-window-seconds: 300
+    enumeration-unique-path-threshold: 50
+    enumeration-not-found-ratio-threshold: 0.90
+    enumeration-min-requests: 15
+    sensitive-path-hits-threshold: 3
+    min-request-interval-millis-for-burst: 150
+    very-high-requests-per-second-threshold: 5.0
+
+  scoring:
+    weight-endpoint-enumeration: 30
+    weight-high-request-rate: 20
+    weight-high-not-found-ratio: 15
+    weight-sensitive-paths: 15
+    weight-suspicious-user-agent: 10
+    weight-known-signature: 30
+    weight-burst-behavior: 10
+    low-max: 29
+    medium-max: 59
+    high-max: 79
+
+  temporary-block:
+    default-duration: 10m
+    allowed-durations-seconds: [300, 600, 1800, 3600, 21600, 86400]
+    persistence-file: ${CALIXSENTRY_DATA_DIR:/data/calixsentry}/blocks.json
+
+  rate-limit:
+    enabled: true
+    requests-per-window: 100
+    window: 60s
+    burst: 20
+
+  events:
+    file-sink-enabled: true
+    # Daily files: calixsentry-events-YYYY-MM-DD.jsonl and calixsentry-access-YYYY-MM-DD.jsonl
+    log-dir: ${CALIXSENTRY_DATA_DIR:/data/calixsentry}/logs
+    # Which time zone decides where one day ends and the next begins (e.g. Asia/Kolkata)
+    timezone: ${CALIXSENTRY_TIMEZONE:UTC}
+    retention-days: 90            # security-event files; 0 = keep forever
+    access-log-enabled: true      # log EVERY proxied request (needed for full per-IP history)
+    access-log-retention-days: 14 # access files are much bigger; 0 = keep forever
+    ip-tracker-max-ips: 10000
+    ip-trail-per-ip: 300
+    ip-retention-hours: 24
+    webhook-enabled: false
+    webhook-url: ""
+    in-memory-retention: 5000
+
+  elasticsearch:
+    enabled: false
+    url: ""
+    index-prefix: calixsentry-events
+
+  management:
+    base-path: /calixsentry
+    trusted-proxy-ips: []

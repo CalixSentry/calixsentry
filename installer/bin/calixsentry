@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# CalixSentry CLI (spec section 20).
+#
+# Implemented:   install (via install.sh, not this script) start stop restart
+#                status version config rules events block unblock
+# NOT IMPLEMENTED yet (spec section 35 - stated honestly rather than faked):
+#                update
+set -euo pipefail
+
+CONFIG_ENV_FILE="/etc/calixsentry/calixsentry.env"
+CRED_FILE="/data/calixsentry/initial-admin-password.txt"
+
+if [[ -f "$CONFIG_ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_ENV_FILE"
+fi
+PORT="${CALIXSENTRY_PORT:-8080}"
+BASE_URL="http://127.0.0.1:${PORT}"
+
+admin_creds() {
+  if [[ -n "${CALIXSENTRY_CLI_USER:-}" && -n "${CALIXSENTRY_CLI_PASSWORD:-}" ]]; then
+    echo "${CALIXSENTRY_CLI_USER}:${CALIXSENTRY_CLI_PASSWORD}"
+    return
+  fi
+  if [[ -r "$CRED_FILE" ]]; then
+    echo "admin:$(cat "$CRED_FILE")"
+    return
+  fi
+  echo ""
+}
+
+api() {
+  local method="$1" path="$2" data="${3:-}"
+  local creds; creds="$(admin_creds)"
+  local auth_arg=()
+  if [[ -n "$creds" ]]; then auth_arg=(-u "$creds"); fi
+  if [[ -n "$data" ]]; then
+    curl -s -X "$method" "${auth_arg[@]}" -H 'Content-Type: application/json' -d "$data" "${BASE_URL}${path}"
+  else
+    curl -s -X "$method" "${auth_arg[@]}" "${BASE_URL}${path}"
+  fi
+}
+
+cmd_status() {
+  local gw_state="UNKNOWN"
+  systemctl is-active --quiet calixsentry && gw_state="RUNNING" || gw_state="STOPPED"
+  local status_json; status_json="$(api GET /calixsentry/api/status || true)"
+
+  echo "CalixSentry"
+  echo "────────────────────────"
+  echo "Version:       $(echo "$status_json" | grep -o '"version":"[^"]*"' | cut -d'"' -f4 || echo unknown)"
+  echo "Gateway:       ${gw_state}"
+  echo "Engine:        ${gw_state}"
+  echo "Protection:    $(echo "$status_json" | grep -o '"protectionMode":"[^"]*"' | cut -d'"' -f4 || echo unknown)"
+  local ab; ab="$(echo "$status_json" | grep -o '"automaticBlocking":[a-z]*' | cut -d: -f2 || echo unknown)"
+  [[ "$ab" == "true" ]] && ab="ON" || ab="OFF"
+  echo "Auto Blocking: ${ab}"
+  echo "Rules:         $(echo "$status_json" | grep -o '"rulesLoaded":[0-9]*' | cut -d: -f2 || echo '?')"
+}
+
+cmd_start()   { systemctl start calixsentry; echo "CalixSentry started."; }
+cmd_stop()    { systemctl stop calixsentry; echo "CalixSentry stopped."; }
+cmd_restart() { systemctl restart calixsentry; echo "CalixSentry restarted."; }
+cmd_version() { echo "CalixSentry CLI 0.1.0-MVP"; }
+
+cmd_config()  { api GET /calixsentry/api/config; echo; }
+cmd_rules()   { api GET /calixsentry/api/rules; echo; }
+cmd_events()  { api GET "/calixsentry/api/events?limit=${1:-50}"; echo; }
+
+cmd_block() {
+  local ip="${1:?Usage: calixsentry block <ip> [durationSeconds|permanent] [reason]}"
+  local duration="${2:-600}"
+  local reason="${3:-Manual block via CLI}"
+  if [[ "$duration" == "permanent" ]]; then
+    api POST /calixsentry/api/blocks "{\"ip\":\"${ip}\",\"reason\":\"${reason}\",\"permanent\":true}"
+  else
+    api POST /calixsentry/api/blocks "{\"ip\":\"${ip}\",\"reason\":\"${reason}\",\"durationSeconds\":${duration},\"permanent\":false}"
+  fi
+  echo
+}
+
+cmd_unblock() {
+  local ip="${1:?Usage: calixsentry unblock <ip>}"
+  api DELETE "/calixsentry/api/blocks/${ip}"
+  echo
+}
+
+cmd_update() {
+  echo "NOT IMPLEMENTED: 'calixsentry update' (automatic version updates) is planned - see docs/ROADMAP.md."
+  echo "To update manually: stop the service, replace /opt/calixsentry/calixsentry-engine.jar, restart the service."
+  exit 2
+}
+
+usage() {
+  cat <<EOF
+CalixSentry CLI
+
+Usage: calixsentry <command> [args]
+
+Commands:
+  install            (run installer/install.sh instead, not this CLI)
+  start               Start the CalixSentry service
+  stop                Stop the CalixSentry service
+  restart             Restart the CalixSentry service
+  status              Show gateway/engine status
+  config              Show effective configuration
+  rules               List loaded detection rules
+  events [limit]       Show recent security events (default 50)
+  block <ip> [durationSeconds|permanent] [reason]
+  unblock <ip>
+  update              NOT IMPLEMENTED (see docs/ROADMAP.md)
+  version              Show CLI version
+EOF
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  status)   cmd_status ;;
+  start)    cmd_start ;;
+  stop)     cmd_stop ;;
+  restart)  cmd_restart ;;
+  version)  cmd_version ;;
+  config)   cmd_config ;;
+  rules)    cmd_rules ;;
+  events)   cmd_events "$@" ;;
+  block)    cmd_block "$@" ;;
+  unblock)  cmd_unblock "$@" ;;
+  update)   cmd_update ;;
+  *)        usage; exit 1 ;;
+esac
